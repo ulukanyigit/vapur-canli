@@ -12,6 +12,10 @@
 - İBB Açık Veri Portalı'ndaki GTFS tarifesi bağlandığında `data/network.json` içindeki hat ve sefer bilgisi gerçek saatlerle değişecek.
 - Canlı AIS (Aşama B) henüz bağlı değil. Bağlandığında vapurlar "Canlı", yayın kesilirse "Sinyal kesildi" olarak görünecek.
 
+## Yolculuk planlama
+
+Panelin üstündeki **Nereden / Nereye** kartından ya da bir iskelenin "Buradan bin / Burada in" düğmelerinden kalkış ve varış iskelesi seçilir. Uygulama günün kalan doğrudan seferlerini kalkış saatine göre listeler (kalkışa kalan süre, varış saati, yolculuk süresi, işletme). Doğrudan sefer yoksa tek aktarmalı seçenekler önerilir (en az 3 dakika aktarma payı, en fazla 1 saat bekleme). Tarifede süresi bariz hatalı seferler (en kısa yolculuğun 2,2 katından uzun olanlar) listelenmez. Seçim adres çubuğunda tutulur, paylaşılabilir: `?nereden=kadikoy&nereye=karakoy`.
+
 ## Klasör yapısı
 
 ```

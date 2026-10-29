@@ -1,4 +1,4 @@
-import { Timetable, VESSEL, clock, hm, istanbulSecondOfDay, istanbulWeekday, pointAt } from './schedule.js';
+import { Timetable, VESSEL, clock, hm, istanbulSecondOfDay, istanbulWeekday, pointAt, sliceLine } from './schedule.js';
 import { buildStyle } from './style.js';
 
 /* global maplibregl */
@@ -26,6 +26,15 @@ let tt = new Timetable(network, today());
 const vessel = (op) => VESSEL[op] ?? VESSEL['Şehir Hatları'];
 const piers = tt.piers;
 const pierName = (id) => piers.get(id)?.name ?? id;
+
+// ---------------------------------------------------------------- yolculuk: kalkış ve varış iskelesi
+// ?nereden=kadikoy&nereye=karakoy ile paylaşılabilir
+const journey = {
+  from: piers.has(qs.get('nereden')) ? qs.get('nereden') : null,
+  to: piers.has(qs.get('nereye')) ? qs.get('nereye') : null,
+};
+if (journey.from === journey.to) journey.to = null;
+let picking = null;          // 'from' | 'to': iskele seçme modu
 
 // ---------------------------------------------------------------- harita
 const HOME = isWide()
@@ -87,10 +96,13 @@ map.addLayer({
 map.addLayer({
   id: 'pier-dot', type: 'circle', source: 'piers',
   paint: {
-    'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 15, 6],
-    'circle-color': ['case', ['boolean', ['feature-state', 'sel'], false], '#E39B2D', '#F2F4EF'],
-    'circle-stroke-color': '#0E2A2F',
-    'circle-stroke-width': 1.5,
+    'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, ['match', ['coalesce', ['feature-state', 'role'], ''], 'from', 5, 'to', 5, 2.5], 15, ['match', ['coalesce', ['feature-state', 'role'], ''], 'from', 9, 'to', 9, 6]],
+    'circle-color': ['case',
+      ['==', ['feature-state', 'role'], 'from'], '#E39B2D',
+      ['==', ['feature-state', 'role'], 'to'], '#0F3A41',
+      ['boolean', ['feature-state', 'sel'], false], '#E39B2D', '#F2F4EF'],
+    'circle-stroke-color': ['match', ['coalesce', ['feature-state', 'role'], ''], 'from', '#F2F4EF', 'to', '#E39B2D', '#0E2A2F'],
+    'circle-stroke-width': ['match', ['coalesce', ['feature-state', 'role'], ''], 'from', 2.5, 'to', 3.5, 1.5],
     'circle-pitch-alignment': 'map',
   },
 });
@@ -252,7 +264,12 @@ function tick() {
 setInterval(tick, 1000);
 
 const mins = (sec) => Math.max(0, Math.round(sec / 60));
-const minHTML = (sec) => (sec < 45 ? '<span class="min now">şimdi</span>' : `<span class="min">${mins(sec)}<small>dk</small></span>`);
+const minHTML = (sec) => {
+  if (sec < 45) return '<span class="min now">şimdi</span>';
+  const m = mins(sec);
+  if (m < 90) return `<span class="min">${m}<small>dk</small></span>`;
+  return `<span class="min min--long">${Math.floor(m / 60)}<small>sa</small>${m % 60 ? ` ${m % 60}<small>dk</small>` : ''}</span>`;
+};
 const statusChip = () => '<button class="status" data-about><span class="sig sig--plan" aria-hidden="true"></span>Tarifeden tahmin</button>';
 const backBtn = () => '<button class="back" data-home><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Tüm iskeleler</button>';
 
@@ -263,7 +280,34 @@ function render() {
   const t = now();
   if (selected.type === 'ferry') return renderFerry(t);
   if (selected.type === 'pier') return renderPier(t);
+  if (selected.type === 'journey') return renderJourney(t);
   return renderHome(t);
+}
+
+// Kalkış/varış kartı: iki satır, aralarında hat çizgisi
+function journeyCard() {
+  const row = (role, label, id) => `
+    <button class="jrow jrow--${role}${picking === role ? ' is-picking' : ''}" data-role="${role}" aria-label="${label}: ${id ? esc(pierName(id)) : 'seçilmedi'}">
+      <span class="jrow__dot" aria-hidden="true"></span>
+      <span class="jrow__label">${label}</span>
+      <span class="jrow__value${id ? '' : ' is-empty'}">${id ? esc(pierName(id)) : 'İskele seç'}</span>
+    </button>`;
+  const both = journey.from && journey.to;
+  return `<div class="journey">
+      <div class="journey__rows">${row('from', 'Nereden', journey.from)}${row('to', 'Nereye', journey.to)}</div>
+      <button class="journey__swap" data-swap ${journey.from || journey.to ? '' : 'disabled'} aria-label="Kalkış ve varışı değiştir">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v15M4.5 15.5L8 19l3.5-3.5M16 20V5M12.5 8.5L16 5l3.5 3.5"/></svg>
+      </button>
+    </div>
+    ${both ? '<button class="btn btn--wide" data-journey>Seferleri göster</button>' : ''}
+    ${journey.from || journey.to ? '<button class="linkbtn" data-clear>Yolculuğu temizle</button>' : ''}`;
+}
+
+function nextLabel(next, t) {
+  if (!next) return 'sefer yok';
+  if (next.tomorrow) return `yarın ${clock(next.time)}`;
+  if (next.time - t < 45) return 'şimdi';
+  return next.time - t <= 5400 ? mins(next.time - t) + ' dk' : clock(next.time);
 }
 
 // İskeleye bir sonraki uğrayış; gün bittiyse ertesi sabahın ilk seferi
@@ -286,27 +330,99 @@ function renderHome(t) {
   if (q) list = list.filter(({ p }) => p.name.toLocaleLowerCase('tr').includes(q) || p.area.toLocaleLowerCase('tr').includes(q));
   list.sort((a, b) => (userPos ? a.dist - b.dist : a.p.name.localeCompare(b.p.name, 'tr')));
 
-  const head = sailing > 0
-    ? `<p class="kicker">Şu an denizde</p><h1 class="headline">${sailing} vapur</h1>`
-    : `<p class="kicker">Şu an denizde vapur yok</p><h1 class="headline">İlk sefer ${clock(tt.firstDepartureAfter(t))}</h1>`;
+  if (picking) {
+    const other = picking === 'from' ? journey.to : journey.from;
+    list = list.filter(({ p }) => p.id !== other);
+  }
+  const head = picking
+    ? `<p class="kicker">${picking === 'from' ? 'Nereden biniyorsun?' : 'Nerede ineceksin?'}</p>
+       <h1 class="headline headline--md">${picking === 'from' ? 'Kalkış iskelesi' : 'Varış iskelesi'}</h1>
+       <p class="note" style="margin:0 0 4px">Listeden ya da haritadan bir iskeleye dokun.</p>
+       <button class="linkbtn" data-cancel-pick>Vazgeç</button>`
+    : `${journeyCard()}
+       <div class="fleet">${sailing > 0
+         ? `<p class="kicker">Şu an denizde</p><p class="headline headline--md">${sailing} vapur</p>`
+         : `<p class="kicker">Şu an denizde vapur yok</p><p class="headline headline--md">İlk sefer ${clock(tt.firstDepartureAfter(t))}</p>`}
+       </div>`;
   const html = `${head}
-    <div class="row">${statusChip()}</div>
+    ${picking ? '' : `<div class="row">${statusChip()}</div>`}
     <div class="search">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
       <input id="pierSearch" type="search" placeholder="İskele ara" autocomplete="off" value="${esc(homeQuery)}" aria-label="İskele ara">
     </div>
     ${userPos ? '<p class="note" style="margin:0 0 4px">Sana en yakın iskeleler üstte.</p>' : ''}
     <ul class="piers">${list.map(({ p, next, dist }) => `
-      <li><button data-pier="${p.id}">
+      <li><button ${picking ? `data-pick="${p.id}"` : `data-pier="${p.id}"`}>
         <span><b>${esc(p.name)}</b><br><span>${esc(p.area)}${dist != null ? `, ${dist < 1 ? Math.round(dist * 1000) + ' m' : dist.toFixed(1) + ' km'}` : ''}</span></span>
-        <span class="next">${!next ? 'sefer yok' : next.tomorrow ? `yarın ${clock(next.time)}` : next.time - t < 45 ? 'şimdi' : next.time - t <= 5400 ? mins(next.time - t) + ' dk' : clock(next.time)}</span>
+        <span class="next">${nextLabel(next, t)}</span>
       </button></li>`).join('') || '<li class="empty">Bu adla bir iskele yok. Yazımı kontrol et ya da listeden seç.</li>'}
     </ul>`;
   if (!keepFocus) { $body.innerHTML = html; return; }
   // Arama yazılırken input'u yeniden kurma: sadece listeyi güncelle
   const tmp = document.createElement('div'); tmp.innerHTML = html;
   $body.querySelector('.piers').replaceWith(tmp.querySelector('.piers'));
-  $body.querySelector('.headline').replaceWith(tmp.querySelector('.headline'));
+}
+
+// ---------------------------------------------------------------- yolculuk sonuçları
+let segKey = '';
+function renderJourney(t) {
+  const { from: A, to: B } = journey;
+  const direct = tt.journeys(A, B, t, Math.max(3 * 3600, 86400 - t));
+  const shown = direct.slice(0, 10);
+  let transfers = [];
+  if (!direct.length) transfers = tt.transfers(A, B, t).slice(0, 4);
+  highlightJourney(shown[0] ?? null, transfers[0] ?? null);
+
+  const tripRow = (j) => {
+    const wait = j.dep - t;
+    const dur = Math.round((j.arr - j.dep) / 60);
+    const via = j.stops > 0 ? `, ${j.stops} ara iskele` : ', aktarmasız';
+    return `<li><button data-ferry="${j.trip.id}" ${wait > 180 ? 'data-future' : ''}>
+      ${minHTML(wait)}
+      <span class="what"><b class="times">${clock(j.dep)} <span aria-hidden="true">→</span><span class="sr">ile</span> ${clock(j.arr)}</b><span>${dur} dk${via}, ${esc(j.line.operator)}</span></span>
+      <span class="chev" aria-hidden="true"></span></button></li>`;
+  };
+  const transferRow = (o) => {
+    const wait = o.dep - t;
+    const dur = Math.round((o.arr - o.dep) / 60);
+    return `<li><button data-ferry="${o.first.trip.id}" ${wait > 180 ? 'data-future' : ''}>
+      ${minHTML(wait)}
+      <span class="what"><b class="times">${clock(o.dep)} → ${clock(o.arr)}</b><span>${dur} dk, ${esc(pierName(o.via))}'da aktarma: ${clock(o.first.arrX)} varış, ${clock(o.second.dep)} kalkış</span><span>${o.first.line.operator === o.second.line.operator ? esc(o.first.line.operator) : `${esc(o.first.line.operator)}, sonra ${esc(o.second.line.operator)}`}</span></span>
+      <span class="chev" aria-hidden="true"></span></button></li>`;
+  };
+  let body;
+  if (shown.length) {
+    body = `<h2 class="section-title">Sıradaki seferler</h2><ul class="board board--trips">${shown.map(tripRow).join('')}</ul>`;
+  } else if (transfers.length) {
+    body = `<p class="empty">Bu iki iskele arasında önümüzdeki saatlerde doğrudan sefer yok. Tek aktarmalı seçenekler:</p>
+      <ul class="board board--trips">${transfers.map(transferRow).join('')}</ul>`;
+  } else {
+    const tomorrow = tt.journeys(A, B, 0, 86400)[0];
+    body = `<p class="empty">${tomorrow
+      ? `Bugün için sefer kalmadı. İlk sefer yarın ${clock(tomorrow.dep)}.`
+      : 'Bu iki iskele arasında doğrudan ya da tek aktarmalı sefer bulunamadı. Başka bir iskele dene.'}</p>`;
+  }
+  $body.innerHTML = `
+    <button class="back" data-home><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Değiştir</button>
+    ${journeyCard().replace(/<button class="btn btn--wide" data-journey>Seferleri göster<\/button>/, '')}
+    <div class="row" style="margin-top:12px">${statusChip()}</div>
+    ${body}
+    <p class="note">Saatler İBB'nin açık tarife verisinden (Şehir Hatları kısmı 2023 tarihli). Güncel tarifeyle farklar olabilir.</p>`;
+}
+
+// Haritada yolculuğun hat parçasını vurgula: biniş–iniş arası
+function highlightJourney(j, tr) {
+  const parts = [];
+  if (j) parts.push([j.line, j.line.stopDist[j.trip.order[j.ia]], j.line.stopDist[j.trip.order[j.ib]]]);
+  else if (tr) {
+    const f = tr.first, g = tr.second;
+    parts.push([f.line, f.line.stopDist[f.trip.order[f.ia]], f.line.stopDist[f.trip.order[f.ix]]]);
+    parts.push([g.line, g.line.stopDist[g.trip.order[g.ia]], g.line.stopDist[g.trip.order[g.ib]]]);
+  }
+  const key = parts.map(([l, a, b]) => `${l.id}:${Math.round(a)}:${Math.round(b)}`).join('|');
+  if (key === segKey) return;
+  segKey = key;
+  map.getSource('line-sel').setData(fc(parts.map(([l, a, b]) => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: sliceLine(l, a, b) } }))));
 }
 
 function renderPier(t) {
@@ -325,6 +441,10 @@ function renderPier(t) {
     ${p.area !== p.name ? `<p class="kicker">${esc(p.area)}</p>` : '<p class="kicker">İskele</p>'}
     <h1 class="headline">${esc(p.name)}</h1>
     <div class="row">${statusChip()}</div>
+    <div class="btnrow">
+      <button class="btn" data-set-from="${p.id}" aria-pressed="${journey.from === p.id}">Buradan bin</button>
+      <button class="btn" data-set-to="${p.id}" aria-pressed="${journey.to === p.id}">Burada in</button>
+    </div>
     <h2 class="section-title">Yanaşacak vapurlar</h2>
     <ul class="board">${incoming.slice(0, 6).map((a) => item(a, 'in')).join('') || '<li class="empty">Önümüzdeki iki saatte bu iskeleye yanaşan sefer yok.</li>'}</ul>
     <h2 class="section-title">Buradan kalkışlar</h2>
@@ -339,6 +459,17 @@ function renderFerry(t) {
   const a = lastActive.find((x) => x.trip.id === tr.id);
   const from = pierName(line.stops[tr.order[0]]);
   const to = pierName(line.stops[tr.order[tr.order.length - 1]]);
+  const leg = journey.from && journey.to ? tt.legOf(tr, journey.from, journey.to) : null;
+  let mine = '';
+  if (leg) {
+    const [ia, ib] = leg;
+    const dep = tr.depart[ia], arr = tr.arrive[ib];
+    const pos = a ? a.state.nextIdx : (t > tr.end ? tr.order.length : 0);
+    const status = t < dep - 30 ? `Kalkışa ${mins(dep - t)} dk` : pos <= ib && t <= arr ? `${esc(pierName(journey.to))} varışına ${mins(arr - t)} dk` : 'Bu yolculuk tamamlandı';
+    mine = `<div class="mytrip"><span class="mytrip__label">Senin yolculuğun</span>
+      <b>${esc(pierName(journey.from))} ${clock(dep)} → ${esc(pierName(journey.to))} ${clock(arr)}</b>
+      <span>${status}</span></div>`;
+  }
   let main;
   if (!a) {
     const done = t > tr.end;
@@ -364,12 +495,14 @@ function renderFerry(t) {
   const stops = tr.order.map((i, k) => {
     const cls = k < nextIdx ? 'past' : k === nextIdx ? 'next' : '';
     const time = k === 0 ? tr.depart[0] : tr.arrive[k];
-    return `<li class="${cls}"><span>${esc(pierName(line.stops[i]))}</span><time>${clock(time)}</time></li>`;
+    const tag = leg && k === leg[0] ? '<em class="tag">bin</em>' : leg && k === leg[1] ? '<em class="tag">in</em>' : '';
+    return `<li class="${cls}${leg && k >= leg[0] && k <= leg[1] ? ' mine' : ''}"><span>${esc(pierName(line.stops[i]))}${tag}</span><time>${clock(time)}</time></li>`;
   }).join('');
-  $body.innerHTML = `${backBtn()}
+  $body.innerHTML = `${leg ? '<button class="back" data-journey><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Seferler</button>' : backBtn()}
     <p class="kicker">${esc(line.operator)}</p>
     <h1 class="headline">${esc(from)} – ${esc(to)}</h1>
     <div class="row">${statusChip()}<span class="op">${esc(line.name)} hattı</span></div>
+    ${mine}
     ${main}
     <h2 class="section-title">Duraklar</h2>
     <ol class="stops">${stops}</ol>
@@ -380,7 +513,56 @@ function renderFerry(t) {
 function setFeatureSel(source, id, on) { if (id != null) map.setFeatureState({ source, id }, { sel: on }); }
 function clearSel() {
   if (selected.type === 'pier') setFeatureSel('piers', pierFeatureId.get(selected.id), false);
-  if (selected.type === 'ferry') map.getSource('line-sel').setData(fc([]));
+  if (selected.type === 'ferry' || selected.type === 'journey') { map.getSource('line-sel').setData(fc([])); segKey = ''; }
+}
+
+// Kalkış/varış iskelelerinin haritadaki işaretleri
+function paintJourneyPiers() {
+  for (const [id, fid] of pierFeatureId) {
+    const role = id === journey.from ? 'from' : id === journey.to ? 'to' : null;
+    map.setFeatureState({ source: 'piers', id: fid }, { role });
+  }
+}
+function syncURL() {
+  const u = new URL(location.href);
+  for (const [k, v] of [['nereden', journey.from], ['nereye', journey.to]]) v ? u.searchParams.set(k, v) : u.searchParams.delete(k);
+  history.replaceState(null, '', u);
+}
+function setJourney(role, id) {
+  journey[role] = id;
+  const other = role === 'from' ? 'to' : 'from';
+  if (journey[other] === id) journey[other] = null;
+  paintJourneyPiers(); syncURL();
+  // Kalkış seçildiyse sıradaki adım varış: kullanıcıyı yönlendir
+  if (journey.from && journey.to) { picking = null; showJourney(); }
+  else { picking = journey.from ? 'to' : 'from'; clearSel(); selected = { type: null, id: null }; render(); $body.scrollTop = 0; focusSearch(); }
+}
+function startPicking(role) {
+  picking = role; clearSel(); selected = { type: null, id: null }; follow = false;
+  if (!isWide()) setSheet('full');
+  render(); $body.scrollTop = 0; focusSearch();
+}
+function focusSearch() { if (picking && isWide()) $body.querySelector('#pierSearch')?.focus(); }
+function showJourney(fly = true) {
+  clearSel(); follow = false; picking = null; homeQuery = '';
+  selected = { type: 'journey', id: `${journey.from}>${journey.to}` };
+  render(); $body.scrollTop = 0;
+  if (!isWide()) setSheet('half');
+  if (fly) {
+    const a = piers.get(journey.from), b = piers.get(journey.to);
+    const bounds = new maplibregl.LngLatBounds([a.lon, a.lat], [a.lon, a.lat]).extend([b.lon, b.lat]);
+    const pad = isWide() ? { top: 130, bottom: 130, left: 470, right: 130 } : { top: 120, bottom: Math.round(innerHeight * 0.6), left: 60, right: 60 };
+    map.fitBounds(bounds, { padding: pad, maxZoom: 14.5, pitch: 40, bearing: map.getBearing(), duration: reduceMotion ? 0 : 900 });
+  }
+}
+function swapJourney() {
+  [journey.from, journey.to] = [journey.to, journey.from];
+  paintJourneyPiers(); syncURL();
+  if (selected.type === 'journey' && journey.from && journey.to) showJourney(false); else render();
+}
+function clearJourney() {
+  journey.from = journey.to = null; picking = null;
+  paintJourneyPiers(); syncURL(); goHome();
 }
 function selectPier(id, fly = true) {
   clearSel(); follow = false;
@@ -400,16 +582,17 @@ function selectFerry(id, fly = true) {
   if (fly && a) camera({ center: a.state.lngLat, zoom: Math.max(map.getZoom(), 14.3), pitch: 62, offset: sheetOffset() });
   openSheet('half'); render(); $body.scrollTop = 0;
 }
-function goHome() { clearSel(); follow = false; selected = { type: null, id: null }; render(); $body.scrollTop = 0; }
+function goHome() { clearSel(); follow = false; picking = null; selected = { type: null, id: null }; render(); $body.scrollTop = 0; }
 function sheetOffset() { return isWide() ? [200, 0] : [0, -Math.round(innerHeight * 0.22)]; }
 function camera(opts) { reduceMotion ? map.jumpTo(opts) : map.easeTo({ ...opts, duration: 900 }); }
 
 map.on('click', (e) => {
   const pad = 14;
   const box = [[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]];
-  const f = map.queryRenderedFeatures(box, { layers: ['ferry-3d', 'ferry-dot', 'ferry-ring'] })[0];
+  const f = picking ? null : map.queryRenderedFeatures(box, { layers: ['ferry-3d', 'ferry-dot', 'ferry-ring'] })[0];
   if (f) return selectFerry(f.properties.id);
   const p = map.queryRenderedFeatures(box, { layers: ['pier-dot', 'pier-label'] })[0];
+  if (p && picking) return setJourney(picking, p.properties.id);
   if (p) return selectPier(p.properties.id);
 });
 for (const id of ['ferry-3d', 'ferry-dot', 'pier-dot', 'pier-label']) {
@@ -421,7 +604,15 @@ map.on('dragstart', () => { if (follow) { follow = false; render(); } });
 $body.addEventListener('click', (e) => {
   const el = e.target.closest('button');
   if (!el) return;
-  if (el.dataset.pier) selectPier(el.dataset.pier);
+  if (el.dataset.pick) setJourney(picking, el.dataset.pick);
+  else if (el.dataset.role) startPicking(el.dataset.role);
+  else if ('swap' in el.dataset) swapJourney();
+  else if ('clear' in el.dataset) clearJourney();
+  else if ('cancelPick' in el.dataset) goHome();
+  else if ('journey' in el.dataset) showJourney();
+  else if (el.dataset.setFrom) setJourney('from', el.dataset.setFrom);
+  else if (el.dataset.setTo) setJourney('to', el.dataset.setTo);
+  else if (el.dataset.pier) selectPier(el.dataset.pier);
   else if (el.dataset.ferry) selectFerry(el.dataset.ferry, !('future' in el.dataset));
   else if ('home' in el.dataset) goHome();
   else if ('about' in el.dataset) document.getElementById('about').showModal();
@@ -478,4 +669,6 @@ handle.addEventListener('pointerup', (e) => {
   drag = null;
 });
 
+paintJourneyPiers();
+if (journey.from && journey.to) showJourney();
 tick();

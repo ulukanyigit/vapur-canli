@@ -117,6 +117,15 @@ function rawPoint(line, d) {
   return [c[lo][0] + (c[hi][0] - c[lo][0]) * f, c[lo][1] + (c[hi][1] - c[lo][1]) * f];
 }
 
+/** Hat geometrisinin d0–d1 metreleri arasındaki parçası. */
+export function sliceLine(line, d0, d1) {
+  const a = Math.max(0, Math.min(d0, d1)), b = Math.min(line.total, Math.max(d0, d1));
+  const out = [pointAt(line, a).lngLat];
+  for (let i = 0; i < line.cum.length; i++) if (line.cum[i] > a && line.cum[i] < b) out.push(line.coords[i]);
+  out.push(pointAt(line, b).lngLat);
+  return out;
+}
+
 /** Trapez hız profili: yavaş kalk, sabit seyret, yavaşça yanaş. Dönüş: [mesafe oranı, hız oranı]. */
 function trapezoid(u, a) {
   const k = 1 / (1 - a);
@@ -220,6 +229,69 @@ export class Timetable {
       });
     }
     return out.sort((a, b) => a.time - b.time);
+  }
+
+  /** Bir seferde a iskelesinden binip sonra b'de inilebiliyorsa [binişIndeksi, inişIndeksi], yoksa null. */
+  legOf(trip, a, b) {
+    const line = this.lines.get(trip.line);
+    const ia = trip.order.findIndex((i) => line.stops[i] === a);
+    if (ia < 0) return null;
+    const ib = trip.order.findIndex((i, k) => k > ia && line.stops[i] === b);
+    return ib < 0 ? null : [ia, ib];
+  }
+
+  /** a'dan b'ye doğrudan seferler: kalkışı [t, t+pencere] içinde olanlar, kalkış saatine göre. */
+  journeys(a, b, t, windowSec = 3 * 3600) {
+    const out = [];
+    const seen = new Set();
+    for (const tr of this.trips) {
+      if (tr.end < t || tr.start > t + windowSec) continue;
+      const leg = this.legOf(tr, a, b);
+      if (!leg) continue;
+      const [ia, ib] = leg;
+      const dep = tr.depart[ia], arr = tr.arrive[ib];
+      if (dep < t - 30 || dep > t + windowSec) continue;
+      const line = this.lines.get(tr.line);
+      const key = `${line.operator}|${Math.round(dep / 60)}|${Math.round(arr / 60)}`;   // aynı seferin GTFS'teki ikizleri
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ trip: tr, line, ia, ib, dep, arr, stops: ib - ia - 1 });
+    }
+    // Tarifede bazı seferlerin süresi bariz hatalı (ör. 12 dakikalık yol 2 saat): en kısa sürenin çok üstündekileri at
+    const minDur = Math.min(...out.map((x) => x.arr - x.dep));
+    const ok = out.filter((x) => x.arr - x.dep <= Math.max(minDur * 2.2, minDur + 1800));
+    return ok.sort((x, y) => x.dep - y.dep || x.arr - y.arr);
+  }
+
+  /** Doğrudan sefer yoksa tek aktarmalı seçenekler: en erken varışa göre. */
+  transfers(a, b, t, windowSec = 3 * 3600, minChange = 180, maxWait = 3600) {
+    const firsts = [];
+    for (const tr of this.trips) {
+      if (tr.end < t || tr.start > t + windowSec) continue;
+      const line = this.lines.get(tr.line);
+      const ia = tr.order.findIndex((i) => line.stops[i] === a);
+      if (ia < 0 || tr.depart[ia] < t - 30 || tr.depart[ia] > t + windowSec) continue;
+      for (let k = ia + 1; k < tr.order.length; k++) {
+        const x = line.stops[tr.order[k]];
+        if (x === b) break;
+        firsts.push({ trip: tr, line, ia, ix: k, via: x, dep: tr.depart[ia], arrX: tr.arrive[k] });
+      }
+    }
+    const options = [];
+    for (const f of firsts) {
+      let best = null;
+      for (const g of this.journeys(f.via, b, f.arrX + minChange, maxWait)) {
+        if (!best || g.arr < best.arr) best = g;
+      }
+      if (best) options.push({ first: f, second: best, dep: f.dep, arr: best.arr, via: f.via });
+    }
+    // aynı kalkış için en erken varışı tut, sonra varışa göre sırala
+    const byDep = new Map();
+    for (const o of options) {
+      const k = `${o.dep}|${o.first.line.operator}`;
+      if (!byDep.has(k) || o.arr < byDep.get(k).arr) byDep.set(k, o);
+    }
+    return [...byDep.values()].sort((x, y) => x.arr - y.arr || x.dep - y.dep);
   }
 
   /** Gün içindeki ilk kalkış (gece boş ekran için). */

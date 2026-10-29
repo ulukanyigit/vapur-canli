@@ -24,7 +24,7 @@
   --f-body: "Sofia Sans", system-ui, sans-serif;
   --f-display: "Sofia Sans Extra Condensed", "Sofia Sans", system-ui, sans-serif;
 
-  --peek: 168px;
+  --peek: 196px;
   --safe-b: env(safe-area-inset-bottom, 0px);
   color-scheme: light dark;
 }
@@ -201,6 +201,8 @@ button { font: inherit; color: inherit; }
 .board .min { font: 800 34px/0.9 var(--f-display); letter-spacing: -.01em; }
 .board .min small { font: 700 16px/1 var(--f-display); margin-left: 1px; }
 .board .min.now { color: var(--accent-ink); font-size: 26px; }
+.board .min.min--long { font-size: 24px; white-space: nowrap; }
+.board .min.min--long small { font-size: 14px; }
 .board .what b { display: block; font-weight: 600; font-size: 15px; line-height: 1.25; }
 .board .what span { font-size: 13px; color: var(--panel-ink-2); }
 .board time { font-size: 14px; color: var(--panel-ink-2); }
@@ -264,4 +266,55 @@ button { font: inherit; color: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   .sheet, .mapctl { transition: none; }
+}
+
+/* ---------- yolculuk: nereden / nereye ---------- */
+/* İki satır bir vapur güzergâhı gibi okunur: dolu nokta biniş, halka iniş, aralarında kesikli hat */
+.journey { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; margin: 2px 0 10px; }
+.journey__rows { position: relative; display: grid; border: 1px solid var(--panel-line); border-radius: 14px; background: var(--panel-raise); overflow: hidden; }
+.journey__rows::before {
+  content: ""; position: absolute; left: 21px; top: 30px; bottom: 30px; width: 0;
+  border-left: 2px dashed color-mix(in srgb, var(--cay) 70%, transparent);
+}
+.jrow {
+  position: relative; display: grid; grid-template-columns: 26px 64px 1fr; align-items: center; gap: 4px;
+  min-height: 54px; padding: 0 14px 0 12px; border: 0; background: none; cursor: pointer; text-align: left;
+}
+.jrow + .jrow { border-top: 1px solid var(--panel-line); }
+.jrow:hover { background: color-mix(in srgb, var(--panel-ink) 4%, transparent); }
+.jrow.is-picking { background: color-mix(in srgb, var(--cay) 14%, transparent); }
+.jrow__dot { width: 14px; height: 14px; border-radius: 50%; justify-self: center; z-index: 1; }
+.jrow--from .jrow__dot { background: var(--cay); box-shadow: 0 0 0 3px var(--panel-raise); }
+.jrow--to .jrow__dot { background: var(--panel-raise); border: 3px solid var(--cay); }
+.jrow__label { font-size: 13px; color: var(--panel-ink-2); }
+.jrow__value { font: 700 25px/1 var(--f-display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jrow__value.is-empty { font: 500 16px/1 var(--f-body); color: var(--panel-ink-2); }
+.journey__swap {
+  width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
+  border: 1px solid var(--panel-line); background: var(--panel-raise); color: var(--panel-ink);
+}
+.journey__swap:disabled { opacity: .35; cursor: default; }
+.journey__swap svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.btn--wide { width: 100%; height: 48px; font-size: 16px; background: var(--panel-ink); color: var(--panel); border-color: var(--panel-ink); }
+.linkbtn { border: 0; background: none; padding: 8px 0; color: var(--panel-ink-2); font-size: 14px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.fleet { margin-top: 14px; }
+.headline--md { font-size: 34px; }
+
+.board--trips .what b.times { font: 700 22px/1.05 var(--f-display); letter-spacing: .01em; }
+.board--trips .what > span { display: block; }
+.board--trips button { grid-template-columns: 64px 1fr 14px; }
+.chev { width: 9px; height: 9px; border-right: 2px solid var(--panel-ink-2); border-top: 2px solid var(--panel-ink-2); transform: rotate(45deg); }
+
+.mytrip {
+  display: grid; gap: 2px; margin: 14px 0 0; padding: 12px 14px; border-radius: 12px;
+  background: color-mix(in srgb, var(--cay) 14%, transparent); border-left: 4px solid var(--cay);
+}
+.mytrip__label { font-size: 13px; color: var(--panel-ink-2); }
+.mytrip b { font: 700 22px/1.1 var(--f-display); }
+.mytrip span:last-child { font-size: 14px; color: var(--accent-ink); font-weight: 600; }
+.stops li.mine span { font-weight: 600; }
+.stops .tag {
+  font-style: normal; font-size: 11px; font-weight: 700; margin-left: 8px; padding: 1px 7px; border-radius: 999px;
+  background: var(--cay); color: #1B1204; vertical-align: 2px;
 }
