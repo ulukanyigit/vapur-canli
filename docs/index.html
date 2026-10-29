@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Vapur Canlı</title>
+  <meta name="description" content="İstanbul Boğazı, Haliç ve Adalar'da vapurlar nerede, iskeleye kaç dakikada gelir? 3D harita.">
+  <meta name="theme-color" content="#0F3A41">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="fonts/fonts.css">
+  <link rel="stylesheet" href="vendor/maplibre-gl.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="map" aria-label="Vapur haritası" role="application"></div>
+
+  <header class="bar">
+    <a class="wordmark" href="./" aria-label="Vapur Canlı ana görünüm">
+      <svg class="wordmark__mark" viewBox="0 0 40 24" aria-hidden="true"><path d="M2 15h30l-4 6H8z"/><path d="M11 15V9h14v6"/><path d="M17 9V4h4v5" class="funnel"/><path d="M0 22.5c3 0 3-1.5 6.5-1.5S10 22.5 13 22.5s3.5-1.5 6.5-1.5 3.5 1.5 6.5 1.5 3.5-1.5 6.5-1.5S36 22.5 40 22.5" class="wave"/></svg>
+      <span>vapur canlı</span>
+    </a>
+    <div class="bar__clock" aria-live="off">
+      <span id="clock">--.--</span>
+      <span id="clockNote" class="bar__note"></span>
+    </div>
+    <button class="iconbtn" id="aboutBtn" aria-haspopup="dialog" aria-controls="about" title="Bu harita nasıl çalışıyor?">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v6M12 7.2v.1"/></svg>
+      <span class="sr">Bu harita nasıl çalışıyor?</span>
+    </button>
+  </header>
+
+  <div class="mapctl">
+    <button class="iconbtn" id="locateBtn" title="Bana en yakın iskele">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"/></svg>
+      <span class="sr">Bana en yakın iskele</span>
+    </button>
+    <button class="iconbtn" id="viewBtn" title="Görünümü sıfırla">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l3.5 9h-7z" class="needle"/><path d="M8.5 12L12 21l3.5-9"/></svg>
+      <span class="sr">Görünümü sıfırla</span>
+    </button>
+  </div>
+
+  <section class="sheet" id="sheet" data-state="peek" aria-label="Ayrıntılar">
+    <button class="sheet__handle" id="sheetHandle" aria-label="Paneli büyüt ya da küçült" aria-expanded="false"><span></span></button>
+    <div class="sheet__body" id="sheetBody"></div>
+  </section>
+
+  <dialog id="about" class="about">
+    <form method="dialog" class="about__close"><button class="iconbtn" aria-label="Kapat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></form>
+    <h2>Bu harita nasıl çalışıyor?</h2>
+    <p>Vapur Canlı bağımsız bir kişisel projedir. İBB, Şehir Hatları, Turyol ya da Dentur'un resmi ürünü değildir ve onlarla bağlantısı yoktur.</p>
+    <h3>Vapurun yanındaki işaret ne anlatıyor?</h3>
+    <ul class="legend">
+      <li><span class="sig sig--live" aria-hidden="true"></span><div><b>Canlı</b> Konum vapurun kendi AIS yayınından geliyor.</div></li>
+      <li><span class="sig sig--plan" aria-hidden="true"></span><div><b>Tarifeden tahmin</b> Konum sefer saatinden ve hat çizgisinden hesaplanıyor. Vapur gerçekte başka yerde olabilir.</div></li>
+      <li><span class="sig sig--lost" aria-hidden="true"></span><div><b>Sinyal kesildi</b> Canlı yayın durdu, tahmine geçildi.</div></li>
+    </ul>
+    <div class="notice">
+      <p><b>Şu an tüm vapurlar tahmin.</b> Sefer saatleri İBB Açık Veri Portalı'ndaki toplu ulaşım tarifesinden (GTFS) geliyor. Bu verinin Şehir Hatları kısmı 2023 tarihli, takvimi de 2024 sonunda bitiyor; o yüzden saatler haftanın gününe göre uygulanıyor ve güncel tarifeden farklı olabilir. Canlı AIS bağlandığında yayın yapan vapurlar gerçek konumlarıyla görünecek.</p>
+    </div>
+    <h3>Veri ve atıflar</h3>
+    <ul class="credits">
+      <li>Sefer saatleri, hat çizgileri ve iskele konumları: <a href="https://data.ibb.gov.tr/dataset/public-transport-gtfs-data" target="_blank" rel="noopener">İBB Açık Veri Portalı, Toplu Ulaşım GTFS Verisi</a> (İBB Açık Veri Lisansı)</li>
+      <li>Binalar: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap katkıcıları</a> (ODbL)</li>
+      <li>Altlık harita karoları: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a>, <a href="https://openmaptiles.org" target="_blank" rel="noopener">© OpenMapTiles</a></li>
+      <li>Arazi gölgesi: Copernicus GLO-30 DEM ile üretildi. Produced using Copernicus WorldDEM-30 © DLR e.V. 2010–2014 and © Airbus Defence and Space GmbH 2014–2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.</li>
+      <li>Yazı tipi: Sofia Sans ve Sofia Sans Extra Condensed, Lettersoup (SIL Open Font License 1.1)</li>
+      <li>Harita motoru: <a href="https://maplibre.org" target="_blank" rel="noopener">MapLibre GL JS</a> (BSD-3)</li>
+    </ul>
+    <p class="about__foot">Bu bir seyir aracı değildir. Sefer bilgisini yolculuktan önce işletmeden doğrulayın.</p>
+  </dialog>
+
+  <script src="vendor/maplibre-gl.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

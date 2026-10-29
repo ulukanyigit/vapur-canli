@@ -1,0 +1,7 @@
+data_raw/
+_transfer/
+build/
+__pycache__/
+.env
+*.key
+ais_kayit/
