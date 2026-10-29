@@ -47,8 +47,9 @@ export function istanbulSecondOfDay(date = new Date()) {
   const p = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Europe/Istanbul', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
   }).formatToParts(date);
-  const g = (t) => Number(p.find((x) => x.type === t).value) % 24;
-  return g('hour') * 3600 + g('minute') * 60 + g('second') + date.getMilliseconds() / 1000;
+  const g = (t) => Number(p.find((x) => x.type === t).value);
+  // Bazı tarayıcılar gece yarısını "24" olarak verir: yalnız saati 24'e göre sar
+  return (g('hour') % 24) * 3600 + g('minute') * 60 + g('second') + date.getMilliseconds() / 1000;
 }
 
 /** İstanbul'da bugün haftanın hangi günü: 0 = Pazartesi … 6 = Pazar */
